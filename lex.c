@@ -5,57 +5,37 @@
 
 #include "lex.h"
 
-#define must(p) \
-if ((status = p) != 0) \
-	return status \
+struct token *lex_token(struct lexer *lex);
 
-int lex_array(struct lexer *lex);
-int lex_token(struct lexer *lex);
-
-char *tt_string(tt typ) {
-	switch (typ) {
-	case TT_STR: return "string";
-	case TT_NUM: return "number";
-	case TT_COMMA: return "comma";
-	case TT_AOPEN: return "a-open";
-	case TT_ACLOSE: return "a-close";
-	
-	case TT_COLON: return "colon";
-	
-	case TT_OOPEN: return "o-open";
-	case TT_OCLOSE: return "o-close";
-	
-	case TT_TRUE: return "true";
-	case TT_FALSE: return "false";
-	case TT_NULL: return "null";
-	default: return "";
-	}
-}
+char *tt_strings[] = {
+	[TT_STR]   = "string",
+	[TT_NUM]   = "number",
+	[TT_COMMA] = ",",
+	[TT_AOPEN] = "[",
+	[TT_ACLOSE] = "]",
+	[TT_COLON] = ":",
+	[TT_OOPEN] = "{",
+	[TT_OCLOSE] = "}",
+	[TT_TRUE] = "true",
+	[TT_FALSE] = "false",
+	[TT_NULL] = "null",
+	[TT_END] = "END"
+};
 
 struct token *token_make(tt typ, char *st, int len) {
 	struct token *tk = (struct token *)malloc(sizeof(struct token));
 	tk->typ = typ;
-	tk->st = st;
+	tk->str = st;
 	tk->len = len;
 	return tk;
 }
 
 // create new lexer; MUST: call lexer_delete() after
-struct lexer *lex_make() {
+struct lexer *lex_make(const char *str) {
 	struct lexer *l = (struct lexer *)malloc(sizeof(struct lexer));
-	l->i = 0;
-	l->cap = 8;
+	l->pos = l->str = str;
 	l->len = 0;
-	l->tks = (struct token **)malloc(sizeof(struct token *) * l->cap);
 	return l;
-}
-
-void lex_delete(struct lexer *lex) { 
-	for (int i = 0; i < lex->i; i++) {
-		free(*(lex->tks+i));
-	}
-	free(lex->tks);
-	free(lex);
 }
 
 struct token *emit(struct lexer *lex, tt typ) {
@@ -65,35 +45,28 @@ struct token *emit(struct lexer *lex, tt typ) {
 	return tk;
 }
 
-void lex_push(struct lexer *lex, struct token *tk) {
-	if (lex->i >= lex->cap) {
-		lex->cap *= 2;
-		lex->tks = realloc(lex->tks, sizeof(struct token *) * lex->cap);
-	}
-	*(lex->tks+lex->i) = tk;
-	lex->i += 1;
-}
-
-int lex_string(struct lexer *lex) {
+struct token *lex_string(struct lexer *lex) {
 	// TODO: check don't go past end of string
 	// TODO: check quote is not preceded by backslash
+	struct token *tk;
 	
 	if (*lex->pos != '"' && *lex->pos != '\'')
-		return -1;
+		return NULL;
 	
 	char delim = *(lex->pos++);
 	
 	while (*(lex->pos+lex->len) != '\0' && *(lex->pos+lex->len) != delim) {
 		lex->len += 1;
 	}
-	lex_push(lex, emit(lex, TT_STR));
+	
+	tk = emit(lex, TT_STR);
 	
 	// skip past last double quote
 	lex->pos += 1; 
-	return 0;
+	return tk;
 }
 
-int lex_number(struct lexer *lex) {
+struct token *lex_number(struct lexer *lex) {
 	// TODO: support floating point 
 	
 	while (isdigit(*(lex->pos+lex->len)))
@@ -101,116 +74,70 @@ int lex_number(struct lexer *lex) {
 	 
 	// TODO: check conditions for end of number more carefully
 	if (isalpha(*(lex->pos+lex->len)))
-		return -1;
+		return NULL;
 		
-	lex_push(lex, emit(lex, TT_NUM));
-	
-	return 0;
+	return emit(lex, TT_NUM);
 }
 
 // return -1 on fail, 0 on success
-int match(struct lexer *lex, tt typ, char *str) {
+struct token *match(struct lexer *lex, tt typ, char *str) {
 	int i, len = strlen(str);
 	for (i = 0; i < len && *(lex->pos+i) != '\0'; i++) {
 		if (*(lex->pos+i) != *str) {
-			return -1;
+			return NULL;
 		}
 		str++;
 	}
 	lex->len = i;
-	lex_push(lex, emit(lex, typ));
-	return 0;
+	return emit(lex, typ);
 }
 
-void skipws(struct lexer *lex) {
-	while (*lex->pos == ' ' || *lex->pos == '\t' || *lex->pos == '\n')
-		lex->pos++;
+int iswhitespace(char c) {
+	return (c == ' ' || c == '\t');
 }
 
-int lex_object(struct lexer *lex) {
-	int status;
-	must(match(lex, TT_OOPEN, "{"));	
-	skipws(lex);
-	while ((status = match(lex, TT_OCLOSE, "}")) != 0) {
-		
-		must(lex_string(lex));
-		skipws(lex);
-		
-		must(match(lex, TT_COLON, ":"));
-		skipws(lex);
-		
-		must(lex_token(lex));
-		skipws(lex);
-		
-		// it doesn't matter if we can't match "," 
-		match(lex, TT_COMMA, ",");
-		skipws(lex);
-	}
+struct token *next_token(struct lexer *lex) {
 	
-	return 0;	
-}
-
-int lex_token(struct lexer *lex) {
-	int status;
+	struct token *tk;
+	
+	while (iswhitespace(*lex->pos))
+		lex->pos++;
+	
 	switch(*lex->pos) {
-	case ' ':
-	case '\t':
-		lex->pos += 1;
-		break;
 	case '"':
 	case '\'':
-		must(lex_string(lex));
+		tk = lex_string(lex);
 		break;
 	case ',':
-		must(match(lex, TT_COMMA, ","));
+		tk = match(lex, TT_COMMA, ",");
 		break;
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
-		must(lex_number(lex));
+		tk = lex_number(lex);
 		break;
 	case '[':
-		must(lex_array(lex));
+		tk = match(lex, TT_AOPEN, "[");
+		break;
+	case ']':
+		tk = match(lex, TT_ACLOSE, "]");
 		break;
 	case '{':
-		must(lex_object(lex));
+		tk = match(lex, TT_OOPEN, "{");
+		break;
+	case '}':
+		tk = match(lex, TT_OCLOSE, "}");
 		break;
 	case 't': 
-		must(match(lex, TT_TRUE, "true"));
+		tk = match(lex, TT_TRUE, "true");
 		break;
 	case 'f':
-		must(match(lex, TT_FALSE, "false"));
+		tk = match(lex, TT_FALSE, "false");
 		break;
 	case 'n':
-		must(match(lex, TT_NULL, "null"));
+		tk = match(lex, TT_NULL, "null");
 		break;
 	default:
-		return -1;
+		tk = NULL;
 	} 
-	return 0;
-}
-
-int lex_array(struct lexer *lex) {
-	int status;
-	
-	must(match(lex, TT_AOPEN, "["));
-	skipws(lex);
-	
-	while ((status = match(lex, TT_ACLOSE, "]")) != 0) {
-	
-		must(lex_token(lex));
-		skipws(lex);
-		
-		match(lex, TT_COMMA, ",");
-		skipws(lex);
-	}
-	return 0;
-}
-
-int lex(struct lexer *lex, char *str) {
-	int status;
-	for (lex->pos = str; *lex->pos != '\0'; )
-		must(lex_token(lex));
-		
-	lex_push(lex, token_make(TT_END, "", 0));
-	return 0;
+	return tk;
 }

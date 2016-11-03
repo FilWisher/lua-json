@@ -20,26 +20,23 @@ typedef enum {
 	
 	TT_NULL,
 
-	TT_END,
-	TT_LEN
+	TT_END
 } tt;
 
 char *tt_string(tt typ);
 
 struct token {
 	tt typ;
-	char *st;
+	char *str;
 	int len;
 };
 
+// TODO: add line info for better errors?
 struct lexer {
+	const char *str;
 	char *pos;
 	int len;
-	int i;
-	int cap;
-	struct token **tks;
 };
 
-struct lexer *lex_make();
-int lex(struct lexer *lex, char *str);
-void lex_delete(struct lexer *lex);
+struct lexer *lex_make(const char *str);
+struct token *next_token(struct lexer *l);
