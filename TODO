@@ -1,0 +1,4 @@
+- lex and parse negative and floating point numbers
+- lex and parse string escape codes
+- json must start with object or array
+- parsing segfaults with unexpected characters
