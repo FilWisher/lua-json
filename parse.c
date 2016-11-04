@@ -20,6 +20,8 @@
 struct parser {
 	struct lexer *lex;
 	struct token *lookahead;
+	// keep track of last token for deletion
+	struct token *old;
 	char err[MAX_ERR];
 };
 
@@ -42,6 +44,7 @@ struct parser *parser_make(const char *str) {
 		return NULL;
 	}
 	p->lookahead = next_token(p->lex);
+	p->old = NULL;
 	return p;
 }
 
@@ -52,7 +55,12 @@ struct token *next(struct parser *p) {
 	if (p->lookahead == NULL || p->lookahead->typ == TT_END)
 		return p->lookahead;
 
+	if (p->old != NULL)
+		free(p->old);
+
 	tk = p->lookahead;
+	p->old = tk;
+	
 	p->lookahead = next_token(p->lex);
 	
 	return tk;
@@ -149,14 +157,22 @@ int l_parse(lua_State *L) {
 	jsonstring = lua_tostring(L, 1);	
 	
 	if ((p = parser_make(jsonstring)) == NULL) {
-		lua_pushstring(L, "could not make parser");
+		sprintf(p->err, "could not make parser");
+		lua_pushstring(L, p->err);
 		lua_error(L);
 	}
 	
 	if (!parse_token(L, p)) {
+		free(p->lex);
+		free(p);
 		lua_pushstring(L, p->err);
 		lua_error(L);
 	}
+
+	free(p->lex);
+	if (p->old != NULL)
+		free(p->old);
+	free(p);
 	
 	return 1;
 }

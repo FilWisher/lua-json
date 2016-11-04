@@ -24,6 +24,7 @@ void test_array() {
 			lua_typename(L, lua_type(L, -1)));
 		lua_pop(L, 1);
 	}
+	lua_close(L);
 }
 
 void test_object() {
@@ -40,6 +41,7 @@ void test_object() {
 			lua_typename(L, lua_type(L, -1)));
 		lua_pop(L, 1);
 	}
+	lua_close(L);
 }
 
 void test_nested() {
@@ -55,6 +57,7 @@ void test_nested() {
 			lua_typename(L, lua_type(L, -1)));
 		lua_pop(L, 1);
 	}
+	lua_close(L);
 }
 
 int main() {
