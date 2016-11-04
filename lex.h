@@ -23,7 +23,7 @@ typedef enum {
 	TT_END
 } tt;
 
-char *tt_string(tt typ);
+extern char *tt_strings[];
 
 struct token {
 	tt typ;

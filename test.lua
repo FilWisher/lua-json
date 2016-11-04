@@ -7,12 +7,29 @@ print(json.parse("true"))
 print(json.parse("false"))
 print(json.parse("null"))
 
-arr = json.parse("[ 'hello', null, true, false, 1234 ]")
-for k, v in pairs(arr) do
-	print(k, v)
+function print_json(arg)
+
+  if type(arg) == 'table' then
+  	io.write("{\n")
+  	for k, v in pairs(arg) do
+      io.write(string.format("\t%s: ", k))
+      print_json(v)
+      io.write("\n")
+    end
+    io.write("}\n") 
+  else
+    io.write(tostring(arg))
+  end
+
 end
 
-obj = json.parse("{ 'hello': 1234, 'wow': true }")
-for k, v in pairs(obj) do
-	print(k, v)
+strings = {
+	"[ 'hello', 1234, true, null, false ]",
+  "{ 'hello': 1234, 'cool': true }",
+  "[ ['hello'], { 'wowza': 1234, 'bur': true}, [[[null]], [false] ]]"
+}
+
+for _, j in pairs(strings) do
+  res = json.parse(j)
+  print_json(res)
 end

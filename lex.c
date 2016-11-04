@@ -99,9 +99,12 @@ int iswhitespace(char c) {
 struct token *next_token(struct lexer *lex) {
 	
 	struct token *tk;
-	
+
 	while (iswhitespace(*lex->pos))
 		lex->pos++;
+	
+	if (*lex->pos == '\0')
+		return NULL;
 	
 	switch(*lex->pos) {
 	case '"':
@@ -132,6 +135,9 @@ struct token *next_token(struct lexer *lex) {
 		break;
 	case 'f':
 		tk = match(lex, TT_FALSE, "false");
+		break;
+	case ':':
+		tk = match(lex, TT_COLON, ":");
 		break;
 	case 'n':
 		tk = match(lex, TT_NULL, "null");

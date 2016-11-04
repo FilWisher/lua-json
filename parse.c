@@ -1,3 +1,12 @@
+/*
+	Parser and operations for parsing objects, arrays, booleans,
+	strings, and numbers.
+	
+	Parse functions return 1 on success. 
+	On failure they update the parser's 'err' field with an error
+	message for printing.
+*/
+
 #include <stdlib.h>
 
 #include <lua.h>
@@ -6,8 +15,12 @@
 #include "lex.h"
 #include "parse.h"
 
+#define MAX_ERR (1024)
+
 struct parser {
-	struct token **pos;
+	struct lexer *lex;
+	struct token *lookahead;
+	char err[MAX_ERR];
 };
 
 struct parser *parser_make(const char *str);
@@ -18,14 +31,41 @@ static int parse_array(lua_State *L, struct parser *p);
 static int parse_object(lua_State *L, struct parser *p);
 static int parse_token(lua_State *L, struct parser *p);
 
-static char err[1024];
+// TODO: replace use of *p->pos with next(p)
+struct parser *parser_make(const char *str) {
+	struct parser *p = (struct parser *)malloc(sizeof(struct parser));
+	if (p == NULL) {
+		return NULL;
+	}
+	p->lex = lex_make(str);
+	if (p->lex == NULL) {
+		return NULL;
+	}
+	p->lookahead = next_token(p->lex);
+	return p;
+}
+
+struct token *next(struct parser *p) {
+	struct token *tk;
+
+	// TODO: remove TT_END checks, NULL indicates end of string 
+	if (p->lookahead == NULL || p->lookahead->typ == TT_END)
+		return p->lookahead;
+
+	tk = p->lookahead;
+	p->lookahead = next_token(p->lex);
+	
+	return tk;
+}
+
+struct token *peek(struct parser *p) {
+	return p->lookahead;
+}
 
 static int parse_token(lua_State *L, struct parser *p) {
 
-	struct token *tk = *p->pos;
-	// TODO: set more sensibly
 	
-	switch (tk->typ) {
+	switch (peek(p)->typ) {
 	case TT_STR:
 		if (parse_string(L, p) != 1)
 			return 0;
@@ -41,7 +81,7 @@ static int parse_token(lua_State *L, struct parser *p) {
 		break;
 	case TT_NULL:
 		lua_pushnil(L);
-		p->pos++;
+		next(p);
 		break;
 		
 	case TT_AOPEN:
@@ -54,37 +94,32 @@ static int parse_token(lua_State *L, struct parser *p) {
 		break;
 		
 	default:
-		sprintf(err, "couldn't parse token %s", tt_string(tk->typ));
-		lua_pushstring(L, err);
+		sprintf(p->err, "couldn't parse token %s", tt_strings[peek(p)->typ]);
+		lua_pushstring(L, p->err);
 		lua_error(L);
-		//lua_pushnil(L);
 	}
 	return 1;
 }
 
+// NOTE: assumes lookahead->typ is TT_TRUE or TT_FALSE
 static int parse_boolean(lua_State *L, struct parser *p) {
-	struct token *tk = *p->pos;
 	
+	struct token *tk = next(p);
 	lua_pushboolean(L, tk->typ == TT_TRUE ? 1 : 0);
-	
-	free(tk);
-	p->pos++;
-	
 	return 1;
 }
 
 static int parse_number(lua_State *L, struct parser *p) {
-	struct token *tk = *p->pos;
+	
+	struct token *tk = next(p);
 	int num;
 	
 	// TODO: hack while number parsing not implemented
 	char *tmp = malloc(sizeof(char) * (tk->len + 1));
-	sprintf(tmp, "%.*s", tk->len, tk->st);	
+	sprintf(tmp, "%.*s", tk->len, tk->str);	
 	num = atoi(tmp);
 	
 	free(tmp);
-	free(tk);
-	p->pos++;
 	
 	lua_pushnumber(L, num);
 	
@@ -92,16 +127,13 @@ static int parse_number(lua_State *L, struct parser *p) {
 }
 
 static int parse_string(lua_State *L, struct parser *p) {
-	struct token *tk = *p->pos;
 	
-	lua_pushlstring(L, tk->st, tk->len);
+	struct token *tk = next(p);
 	
-	free(tk);
-	p->pos++;
+	lua_pushlstring(L, tk->str, tk->len);
 	
 	return 1;
 }
-
 
 int l_parse(lua_State *L) {
 	
@@ -122,7 +154,7 @@ int l_parse(lua_State *L) {
 	}
 	
 	if (!parse_token(L, p)) {
-		lua_pushstring(L, "could not parse json");
+		lua_pushstring(L, p->err);
 		lua_error(L);
 	}
 	
@@ -130,77 +162,71 @@ int l_parse(lua_State *L) {
 }
 
 int expect(struct parser *p, tt typ) {
-	struct token *cur = *p->pos;
-	if (cur->typ == typ) {
-		p->pos++;
+	struct token *tk = peek(p);
+	if (tk == NULL) {
+		sprintf(p->err, "expected %s but reached end of json",
+			tt_strings[typ]);	
 		return 0;
 	}
-	return -1;
+	if (tk->typ != typ) {
+		sprintf(p->err, "expected %s but got %s", 
+			tt_strings[typ], tt_strings[tk->typ]);
+		return 0;
+	}
+	next(p);
+	return 1;
 }
 
 static int parse_array(lua_State *L, struct parser *p) {
-	struct token *tk;
+	
+	struct token *tk = peek(p);
 	int index = 1;
 	
 	lua_newtable(L);
-	if (expect(p, TT_AOPEN) != 0)
-		return 0;
-	for (tk = *p->pos; tk->typ != TT_ACLOSE && tk->typ != TT_END; tk = *p->pos) {
 	
+	if (!expect(p, TT_AOPEN))
+		return 0;
+	
+	for (; tk != NULL && tk->typ != TT_ACLOSE && tk->typ != TT_END; tk = peek(p)) {
+		
 		lua_pushnumber(L, index++);
+		
 		if (!parse_token(L, p))
 			return 0;
-		lua_settable(L, -3);
 		
-		if (expect(p, TT_ACLOSE) != 0 && expect(p, TT_COMMA) != 0)
-			return 0;
+		lua_settable(L, -3);
+	
+		if (!expect(p, TT_COMMA))
+			break;
 	}
 	
-	return 1;
+	return expect(p, TT_ACLOSE);
 }
 
 static int parse_object(lua_State *L, struct parser *p) {
 	
+	struct token *tk = peek(p);
 	lua_newtable(L);
-	if (expect(p, TT_OOPEN) != 0) {
-		lua_pushstring(L, "expected opening {");
-		lua_error(L);
-	}
-	struct token *tk;
-	for (tk = *p->pos; tk->typ != TT_OCLOSE && tk->typ != TT_END; tk = *p->pos) {
 	
-		if (!parse_string(L, p)) {
-			lua_pushstring(L, "could not parse string for key");
-			lua_error(L);
-		}
-			
-		if (expect(p, TT_COLON) != 0) {
-			sprintf(err, "expected colon but got token of type %s with value %.*s", 
-				tt_string(tk->typ), tk->len, tk->st);
-			lua_pushstring(L, err);
-			lua_error(L);
-		}
+	if (!expect(p, TT_OOPEN))
+		return 0;
+
+	for (; tk != NULL && tk->typ != TT_OCLOSE && tk->typ != TT_END; tk = peek(p)) {
+	
+		if (!parse_string(L, p))
+			return 0;
 		
-		if (!parse_token(L, p)) {
-			lua_pushstring(L, "could not parse token for value");
-			lua_error(L);
-		}
+		if (!expect(p, TT_COLON))
+			return 0;
 		
-		// TODO: MUST have comma if more to come
-		expect(p, TT_COMMA);
+		if (!parse_token(L, p))
+			return 0;
 		
 		lua_settable(L, -3);
+	
+		if (!expect(p, TT_COMMA))
+			break;
 	}
-	return 1;
-}
-
-struct parser *parser_make(const char *str) {
-	struct lexer *l = lex_make();
-	if (lex(l, str) != 0) {
-		lex_delete(l);
-		return NULL;
-	}
-	struct parser *p = (struct parser *)malloc(sizeof(struct parser));
-	p->pos = l->tks;
-	return p;
+	
+	return expect(p, TT_OCLOSE);
 }
