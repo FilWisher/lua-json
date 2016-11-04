@@ -93,7 +93,7 @@ struct token *match(struct lexer *lex, tt typ, char *str) {
 }
 
 int iswhitespace(char c) {
-	return (c == ' ' || c == '\t');
+	return (c == ' ' || c == '\t' || c == '\n');
 }
 
 struct token *next_token(struct lexer *lex) {
