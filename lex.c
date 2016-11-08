@@ -22,26 +22,55 @@ char *tt_strings[] = {
 	[TT_END] = "END"
 };
 
-struct token *token_make(tt typ, char *st, int len) {
+struct token *token_make(tt typ, char *st, int len, int line, int col) {
 	struct token *tk = (struct token *)malloc(sizeof(struct token));
+	
 	tk->typ = typ;
 	tk->str = st;
 	tk->len = len;
+	
+	tk->line = line;
+	tk->col = col;
+	
 	return tk;
+}
+
+// progress lexer onto next char
+char advance(struct lexer *l) {
+
+	switch (*l->pos) {
+	case '\n':	
+		l->line++;
+		l->col = 1;
+		break;
+	case '\0':
+		return '\0';
+	default:
+		l->col++;
+	}
+	
+	return *(++l->pos);
 }
 
 // create new lexer; MUST: call lexer_delete() after
 struct lexer *lex_make(const char *str) {
 	struct lexer *l = (struct lexer *)malloc(sizeof(struct lexer));
+	
 	l->pos = l->str = str;
 	l->len = 0;
+	
+	l->line = 1;
+	l->col = 1;
+	
 	return l;
 }
 
-struct token *emit(struct lexer *lex, tt typ) {
-	struct token *tk = token_make(typ, lex->pos, lex->len);
-	lex->pos += lex->len;
-	lex->len = 0;
+// emits token of type at lexer's current position
+struct token *emit(struct lexer *l, tt typ) {
+	struct token *tk = token_make(typ, l->pos, l->len, l->line, l->col);
+	l->pos += l->len;
+	
+	l->len = 0;
 	return tk;
 }
 
@@ -52,44 +81,78 @@ struct token *lex_string(struct lexer *lex) {
 	
 	if (*lex->pos != '"' && *lex->pos != '\'')
 		return NULL;
+
+	char delim = *lex->pos;
 	
-	char delim = *(lex->pos++);
+	advance(lex);
+	
+	int line = lex->line;
+	int col = lex->col;
 	
 	while (*(lex->pos+lex->len) != '\0' && *(lex->pos+lex->len) != delim) {
 		lex->len += 1;
+		
+		if (*(lex->pos+lex->len) == '\n') {
+			line++;
+			col = 1;
+			continue;
+		}
+		
+		col++;
 	}
-	
+
 	tk = emit(lex, TT_STR);
 	
+	lex->line = line;
+	lex->col = col;
+	
 	// skip past last double quote
-	lex->pos += 1; 
+	advance(lex); 
 	return tk;
 }
 
 struct token *lex_number(struct lexer *lex) {
 	// TODO: support floating point 
 	
-	while (isdigit(*(lex->pos+lex->len)))
-		lex->len += 1;
+	struct token *tk;
+	int col = lex->col;
+	
+	while (isdigit(*(lex->pos+lex->len))) {
+		lex->len++;
+		col++;
+	}
 	 
 	// TODO: check conditions for end of number more carefully
 	if (isalpha(*(lex->pos+lex->len)))
 		return NULL;
 		
-	return emit(lex, TT_NUM);
+	tk = emit(lex, TT_NUM);
+	lex->col = col;
+	
+	return tk;
 }
 
 // return -1 on fail, 0 on success
 struct token *match(struct lexer *lex, tt typ, char *str) {
+
+	struct token *tk;
+	int col = lex->col;
 	int i, len = strlen(str);
+	
 	for (i = 0; i < len && *(lex->pos+i) != '\0'; i++) {
 		if (*(lex->pos+i) != *str) {
 			return NULL;
 		}
 		str++;
+		col++;
 	}
+	
 	lex->len = i;
-	return emit(lex, typ);
+	
+	tk = emit(lex, typ);
+	lex->col = col;
+	
+	return tk;
 }
 
 int iswhitespace(char c) {
@@ -101,7 +164,7 @@ struct token *next_token(struct lexer *lex) {
 	struct token *tk;
 
 	while (iswhitespace(*lex->pos))
-		lex->pos++;
+		advance(lex);
 	
 	if (*lex->pos == '\0')
 		return NULL;

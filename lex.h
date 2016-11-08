@@ -27,8 +27,12 @@ extern char *tt_strings[];
 
 struct token {
 	tt typ;
+	
 	char *str;
 	int len;
+	
+	int line;
+	int col;
 };
 
 // TODO: add line info for better errors?
@@ -36,6 +40,9 @@ struct lexer {
 	const char *str;
 	char *pos;
 	int len;
+	
+	int line;
+	int col;
 };
 
 struct lexer *lex_make(const char *str);
