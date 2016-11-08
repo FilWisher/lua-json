@@ -35,7 +35,7 @@ static int parse_token(lua_State *L, struct parser *p);
 
 // TODO: replace use of *p->pos with next(p)
 struct parser *parser_make(const char *str) {
-	struct parser *p = (struct parser *)malloc(sizeof(struct parser));
+	struct parser *p = malloc(sizeof(struct parser));
 	if (p == NULL) {
 		return NULL;
 	}
@@ -72,8 +72,19 @@ struct token *peek(struct parser *p) {
 
 static int parse_token(lua_State *L, struct parser *p) {
 
-	
-	switch (peek(p)->typ) {
+	struct token *tk;
+
+	if ((tk = peek(p)) == NULL) {
+		sprintf(p->err, "%d:%d: unexpected token %c",
+			p->lex->line,
+			p->lex->col,
+			*p->lex->pos);
+		lua_pushstring(L, p->err);
+		lua_error(L);
+		return 0;
+	}
+
+	switch (tk->typ) {
 	case TT_STR:
 		if (parse_string(L, p) != 1)
 			return 0;
@@ -91,7 +102,6 @@ static int parse_token(lua_State *L, struct parser *p) {
 		lua_pushnil(L);
 		next(p);
 		break;
-		
 	case TT_AOPEN:
 		if (parse_array(L, p) != 1)
 			return 0;
@@ -100,9 +110,8 @@ static int parse_token(lua_State *L, struct parser *p) {
 		if (parse_object(L, p) != 1)
 			return 0;
 		break;
-		
 	default:
-		sprintf(p->err, "couldn't parse token %s", tt_strings[peek(p)->typ]);
+		sprintf(p->err, "couldn't parse token %s", tt_strings[tk->typ]);
 		lua_pushstring(L, p->err);
 		lua_error(L);
 	}
@@ -179,14 +188,22 @@ int l_parse(lua_State *L) {
 
 int expect(struct parser *p, tt typ) {
 	struct token *tk = peek(p);
-	if (tk == NULL) {
-		sprintf(p->err, "expected %s but reached end of json",
-			tt_strings[typ]);	
+	if (tk == NULL) {			
+		sprintf(p->err, "%d:%d: unexpected token",
+			p->lex->line,
+			p->lex->col);
+		if (*p->lex->pos == '\0')
+			sprintf(p->err, "%s %s", p->err, "end of json");
+		else
+			sprintf(p->err, "%s %c", p->err, *p->lex->pos);
 		return 0;
 	}
 	if (tk->typ != typ) {
-		sprintf(p->err, "expected %s but got %s", 
-			tt_strings[typ], tt_strings[tk->typ]);
+		sprintf(p->err, "%d:%d: expected %s but got %s",
+			p->lex->line, 
+			p->lex->col, 
+			tt_strings[typ], 
+			tt_strings[tk->typ]);
 		return 0;
 	}
 	next(p);

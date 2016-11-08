@@ -41,6 +41,7 @@ void test_object() {
 			lua_typename(L, lua_type(L, -1)));
 		lua_pop(L, 1);
 	}
+
 	lua_close(L);
 }
 
@@ -60,10 +61,21 @@ void test_nested() {
 	lua_close(L);
 }
 
-int main() {
+void test_edges() {
+	// TODO: handle edge cases
 	
+	lua_State *L = luaL_newstate();
+	lua_pushstring(L, "[ 'hello', 1234, # ]");
+	assert(l_parse(L));
+	
+	lua_close(L);
+}
+
+int main() {
+
 	test_array();
 	test_object();
 	test_nested();
+	test_edges();
 	
 }
